@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Project Nexus - AI Medical Memory Engine",
+  "description": "A clinical-grade medical record integration engine that converts fragmented records into HL7 FHIR structured data and provides timeline-based medical reasoning.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
