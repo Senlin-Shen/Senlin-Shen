@@ -1,13 +1,53 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { FHIRResource, Insight, ResourceType } from "../types";
 import { SYSTEM_INSTRUCTION_PARSER, SYSTEM_INSTRUCTION_REASONER } from "../constants";
 
-// 初始化 Gemini 客户端，必须从 process.env.API_KEY 获取密钥
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+/**
+ * 豆包（火山引擎）API 配置
+ */
+const DOUBAO_ENDPOINT = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
+const API_KEY = process.env.API_KEY; // 从 Vercel 环境变量获取
+const MODEL_ID = (process.env as any).VITE_DOUBAO_MODEL_ID || "doubao-pro-32k"; // 推理接入点 ID
 
 /**
- * 辅助方法：从报告文本中正则提取临床事件，用于左侧时间轴同步
+ * 通用豆包 API 请求封装（OpenAI 兼容格式）
+ */
+async function callDoubao(messages: any[], responseFormat?: string) {
+  if (!API_KEY) {
+    throw new Error("未配置 API_KEY，请在 Vercel 后台检查环境变量。");
+  }
+
+  const body: any = {
+    model: MODEL_ID,
+    messages: messages,
+    temperature: 0.1,
+  };
+
+  if (responseFormat === "json_object") {
+    // 豆包部分模型支持通过提示词强制 JSON，这里在 body 中也做标记
+    body.response_format = { type: "json_object" };
+  }
+
+  const response = await fetch(DOUBAO_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${API_KEY}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData?.error?.message || `API 请求失败: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
+/**
+ * 辅助方法：从生成的报告中提取临床事件
  */
 function extractResources(text: string): FHIRResource[] {
   const resources: FHIRResource[] = [];
@@ -27,81 +67,68 @@ function extractResources(text: string): FHIRResource[] {
 }
 
 /**
- * 核心解析函数：支持多张图片同时解析
+ * 解析医疗文档（多模态：支持批量图片）
  */
 export const processMedicalRecord = async (
   files: { data: string; mimeType: string }[],
   textContent?: string
 ): Promise<{ report: string; resources: FHIRResource[] }> => {
-  const parts: any[] = [];
+  const contentParts: any[] = [];
   
   if (textContent) {
-    parts.push({ text: `Context: ${textContent}` });
+    contentParts.push({ type: "text", text: `病历文本内容: ${textContent}` });
   }
   
   files.forEach(file => {
-    parts.push({
-      inlineData: {
-        data: file.data,
-        mimeType: file.mimeType,
-      },
+    contentParts.push({
+      type: "image_url",
+      image_url: {
+        url: `data:${file.mimeType};base64,${file.data}`
+      }
     });
   });
 
-  try {
-    // Correctly using ai.models.generateContent with model name and multi-part contents object
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: { parts },
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION_PARSER,
-        temperature: 0.1,
-      },
-    });
+  if (contentParts.length === 0) {
+    contentParts.push({ type: "text", text: "请解析当前病历资料。" });
+  }
 
-    const reportText = response.text || "";
+  try {
+    const reportText = await callDoubao([
+      { role: "system", content: SYSTEM_INSTRUCTION_PARSER },
+      { role: "user", content: contentParts }
+    ]);
+
     return {
       report: reportText,
       resources: extractResources(reportText)
     };
   } catch (err: any) {
-    console.error("Gemini Parsing Error:", err);
-    throw new Error(`临床解析引擎异常: ${err.message || "未知错误"}`);
+    console.error("Doubao Parsing Error:", err);
+    throw err;
   }
 };
 
 /**
- * 生成临床洞察：使用 responseSchema 强制返回 JSON
+ * 生成临床洞察（JSON 结构化输出）
  */
 export const generateMedicalInsights = async (history: FHIRResource[]): Promise<Insight[]> => {
   if (history.length === 0) return [];
   
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: { parts: [{ text: `分析以下病历历史并生成 Insight 数组：\n${JSON.stringify(history)}` }] },
-      config: {
-        systemInstruction: "你是一个资深临床专家。请分析历史并返回 JSON 数组，必须符合 Insight 接口定义。不要输出 JSON 以外的内容。",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              id: { type: Type.STRING },
-              type: { type: Type.STRING, description: "WARNING, INFO, 或 CAUSAL" },
-              title: { type: Type.STRING },
-              description: { type: Type.STRING },
-              sourceIds: { type: Type.ARRAY, items: { type: Type.STRING } },
-            },
-            required: ["id", "type", "title", "description", "sourceIds"],
-          },
-        },
-      },
-    });
+    const prompt = `分析以下临床事件并生成 Insight JSON 数组。
+要求：
+1. 识别潜在风险 (WARNING) 或因果关联 (CAUSAL)。
+2. 严格返回 JSON 格式，不要有 Markdown 标记。
+数据：${JSON.stringify(history)}`;
 
-    // response.text property directly returns the extracted string output
-    return JSON.parse(response.text || "[]");
+    const jsonStr = await callDoubao([
+      { role: "system", content: "你是一个资深临床专家。只返回 JSON 数组，包含 id, type (WARNING/INFO/CAUSAL), title, description, sourceIds 字段。" },
+      { role: "user", content: prompt }
+    ], "json_object");
+
+    // 清理 Markdown 代码块包裹
+    const cleaned = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleaned);
   } catch (e) {
     console.error("Insights Error:", e);
     return [];
@@ -109,27 +136,30 @@ export const generateMedicalInsights = async (history: FHIRResource[]): Promise<
 };
 
 /**
- * 临床对话：支持图片追问
+ * 临床咨询问答（支持追问图片）
  */
 export const askMedicalQuestion = async (
   question: string, 
   context: string, 
   images?: { data: string, mimeType: string }[]
 ): Promise<string> => {
-  const parts: any[] = [{ text: `背景上下文:\n${context}\n\n问题: ${question}` }];
+  const contentParts: any[] = [{ type: "text", text: `背景上下文:\n${context}\n\n我的提问: ${question}` }];
   
   if (images) {
-    images.forEach(img => parts.push({ inlineData: { data: img.data, mimeType: img.mimeType } }));
+    images.forEach(img => {
+      contentParts.push({
+        type: "image_url",
+        image_url: { url: `data:${img.mimeType};base64,${img.data}` }
+      });
+    });
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
-      contents: { parts },
-      config: { systemInstruction: SYSTEM_INSTRUCTION_REASONER },
-    });
-    return response.text || "未能生成有效建议。";
+    return await callDoubao([
+      { role: "system", content: SYSTEM_INSTRUCTION_REASONER },
+      { role: "user", content: contentParts }
+    ]);
   } catch (e: any) {
-    return `对话请求失败: ${e.message}`;
+    return `对话失败: ${e.message}`;
   }
 };
