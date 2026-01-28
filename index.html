@@ -4,41 +4,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project Nexus | AI 医疗记忆引擎</title>
+    <title>健数智合 | AI 医疗数据整合平台</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        body { font-family: 'Noto Sans SC', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .medical-grid { 
-            background-color: #f8fafc;
-            background-image: radial-gradient(#e2e8f0 1px, transparent 1px); 
-            background-size: 30px 30px; 
+            background-color: #f1f5f9;
+            background-image: linear-gradient(rgba(203, 213, 225, 0.2) 1px, transparent 1px), 
+                              linear-gradient(90deg, rgba(203, 213, 225, 0.2) 1px, transparent 1px);
+            background-size: 40px 40px; 
         }
-        /* 优化 Markdown 表格显示 */
-        table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.875rem; }
-        th, td { border: 1px solid #e2e8f0; padding: 0.75rem; text-align: left; }
-        th { background-color: #f1f5f9; font-weight: 700; }
-        tr:nth-child(even) { background-color: #f8fafc; }
-
-        /* 打印样式支持 */
+        .report-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+        /* 深度医疗风格 Markdown 渲染 */
+        .prose h1 { color: #1e3a8a; border-bottom: 2px solid #3b82f6; padding-bottom: 0.5rem; margin-top: 2rem; font-size: 1.5rem; }
+        .prose h2 { color: #1e40af; border-left: 4px solid #3b82f6; padding-left: 0.75rem; margin-top: 1.5rem; font-size: 1.25rem; }
+        .prose table { border: 2px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+        .prose th { background-color: #eff6ff; color: #1e40af; }
+        
         @media print {
-            body { background: white !important; }
-            aside, header, .no-print, .chat-interface, .insight-panel, button { display: none !important; }
-            main { padding: 0 !important; margin: 0 !important; display: block !important; }
-            .report-container { 
-                border: none !important; 
-                box-shadow: none !important; 
-                min-height: auto !important;
-                padding: 0 !important;
-            }
-            .prose { max-width: 100% !important; font-size: 12pt !important; }
-            .print-header { display: block !important; margin-bottom: 2rem; border-bottom: 2px solid #000; padding-bottom: 1rem; }
+            aside, header, .no-print { display: none !important; }
+            main { display: block !important; padding: 0 !important; }
+            .report-card { border: none !important; box-shadow: none !important; }
         }
-        .print-header { display: none; }
     </style>
     <script type="importmap">
 {
@@ -46,7 +41,6 @@
     "react": "https://esm.sh/react@^19.0.0",
     "react-dom/client": "https://esm.sh/react-dom@^19.0.0/client",
     "lucide-react": "https://esm.sh/lucide-react@^0.474.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
     "react/": "https://esm.sh/react@^19.2.4/",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
   }

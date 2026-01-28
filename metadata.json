@@ -1,6 +1,6 @@
 {
-  "name": "Copy of Project Nexus - AI Medical Memory Engine",
-  "description": "A clinical-grade medical record integration engine that converts fragmented records into HL7 FHIR structured data and provides timeline-based medical reasoning.",
+  "name": "健数智合 - AI 医疗数据整合应用",
+  "description": "专为医疗健康领域打造的 AI 数据整合应用，支持患者全量病历资料的智能解析、标准化梳理与多维度可视化管理。",
   "requestFramePermissions": [
     "camera"
   ]

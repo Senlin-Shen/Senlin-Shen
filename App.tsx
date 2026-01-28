@@ -5,7 +5,12 @@ import { InsightPanel } from './components/InsightPanel';
 import { ChatInterface } from './components/ChatInterface';
 import { processMedicalRecord, generateMedicalInsights, askMedicalQuestion } from './services/medicalService';
 import { FHIRResource, Insight, ChatMessage } from './types';
-import { ShieldCheck, BrainCircuit, HeartPulse, Menu, X, PlusCircle, FileSearch, Sparkles, ChevronDown, UserCircle2, Download, Trash2, CheckSquare, Square, UserPlus, Fingerprint } from 'lucide-react';
+import { 
+  ShieldCheck, BrainCircuit, HeartPulse, Menu, X, PlusCircle, 
+  FileSearch, Sparkles, ChevronDown, UserCircle2, Download, 
+  Trash2, CheckSquare, Square, UserPlus, Fingerprint, 
+  Database, BarChart3, Stethoscope
+} from 'lucide-react';
 
 interface Patient {
   id: string;
@@ -38,7 +43,7 @@ const App: React.FC = () => {
       setMessages([{ 
         id: 'init', 
         role: 'assistant', 
-        content: "您好，我是 Nexus 临床引擎，已连接火山引擎「豆包」模型。目前尚未检测到就诊人档案。请点击左侧「导入病历资料」，我将通过多模态识别为您自动创建档案。", 
+        content: "欢迎使用「健数智合」。我是您的 AI 医疗数据助理。平台已接入火山引擎豆包多模态大模型，支持解析门诊、住院、检验等全量病历。请上传资料开始自动化建档。", 
         timestamp: Date.now() 
       }]);
     }
@@ -75,7 +80,7 @@ const App: React.FC = () => {
         reader.readAsText(file);
       }
     } catch (err: any) {
-      alert(`豆包解析失败: ${err.message}`);
+      alert(`解析失败: ${err.message}`);
     } finally {
       setIsParsing(false);
     }
@@ -83,13 +88,13 @@ const App: React.FC = () => {
 
   const updateAppState = (result: { report: string, resources: FHIRResource[] }) => {
     const nameMatch = result.report.match(/(?:姓名|患者)[:：]\s*([^\s\n\r|]+)/);
-    const extractedName = nameMatch ? nameMatch[1].trim() : "匿名患者_" + Math.floor(Math.random() * 1000);
+    const extractedName = nameMatch ? nameMatch[1].trim() : "匿名就诊人_" + Math.floor(Math.random() * 1000);
     
     if (!activePatientId) {
       const newPatient: Patient = {
         id: Date.now().toString(),
         name: extractedName,
-        tag: "豆包自动识别"
+        tag: "多维度自动识别"
       };
       setPatients([newPatient]);
       setActivePatientId(newPatient.id);
@@ -97,7 +102,7 @@ const App: React.FC = () => {
       setMessages(prev => [...prev, { 
         id: Date.now().toString(), 
         role: 'assistant', 
-        content: `豆包模型已成功识别新就诊人：${extractedName}。系统已自动为您建立临床时间轴，您可以开始针对这份病历进行问答。`, 
+        content: `「健数智合」已识别到新就诊人：${extractedName}。基于临床、统计与营养视角的深度结构化报告已生成，请在中心区域查阅。`, 
         timestamp: Date.now() 
       }]);
     }
@@ -128,15 +133,6 @@ const App: React.FC = () => {
     }
   };
 
-  const deleteSelected = () => {
-    if (confirm(`确定要删除选中的 ${selectedResourceIds.length} 项记录吗？`)) {
-      const newHistory = history.filter(h => !selectedResourceIds.includes(h.id));
-      setHistory(newHistory);
-      setSelectedResourceIds([]);
-      refreshInsights(newHistory);
-    }
-  };
-
   const handleSendMessage = async (text: string) => {
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: text, timestamp: Date.now() }]);
     setIsChatting(true);
@@ -149,16 +145,16 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-[#f8fafc] overflow-hidden font-sans">
-      <aside className={`bg-white border-r border-slate-200 transition-all duration-300 flex flex-col shadow-sm ${sidebarOpen ? 'w-80' : 'w-0'}`}>
-        <div className="p-5 border-b border-slate-100 flex flex-col gap-4 bg-slate-50/30">
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
+      <aside className={`bg-[#1e293b] text-slate-300 transition-all duration-300 flex flex-col shadow-2xl ${sidebarOpen ? 'w-80' : 'w-0'}`}>
+        <div className="p-5 border-b border-slate-700/50 flex flex-col gap-4">
           <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2 font-bold text-blue-700">
-              <HeartPulse className="w-5 h-5" />
-              <span className="tracking-tight uppercase text-sm">临床时间轴</span>
+            <div className="flex items-center gap-2 font-bold text-blue-400">
+              <Database className="w-5 h-5" />
+              <span className="tracking-widest uppercase text-xs">临床记忆时间轴</span>
             </div>
-            <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-1.5 hover:bg-slate-200 rounded-lg">
-              <X className="w-4 h-4 text-slate-400" />
+            <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-1.5 hover:bg-slate-700 rounded-lg">
+              <X className="w-4 h-4" />
             </button>
           </div>
 
@@ -166,13 +162,13 @@ const App: React.FC = () => {
             <div className="flex items-center justify-between px-1">
               <button 
                 onClick={toggleSelectAll}
-                className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-500 hover:text-blue-600 transition-colors"
+                className="flex items-center gap-2 text-[10px] font-bold uppercase text-slate-400 hover:text-white transition-colors"
               >
-                {selectedResourceIds.length === history.length && history.length > 0 ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                全选 ({selectedResourceIds.length}/{history.length})
+                {selectedResourceIds.length === history.length ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4" />}
+                全选 ({selectedResourceIds.length})
               </button>
               {selectedResourceIds.length > 0 && (
-                <button onClick={deleteSelected} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors">
+                <button onClick={() => setHistory([])} className="p-1.5 text-slate-500 hover:text-red-400 transition-colors">
                   <Trash2 className="w-4 h-4" />
                 </button>
               )}
@@ -180,44 +176,54 @@ const App: React.FC = () => {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-900/50">
           <Timeline 
             data={history} 
             selectedIds={selectedResourceIds}
             onToggleSelect={(id) => setSelectedResourceIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])}
-            onSelect={(item) => console.log("Node Detail:", item)} 
+            onSelect={() => {}} 
           />
         </div>
 
-        <div className="p-5 border-t border-slate-100 bg-slate-50/50">
-          <label className="flex items-center justify-center gap-2 w-full py-4 bg-blue-700 text-white rounded-2xl hover:bg-blue-800 cursor-pointer transition-all shadow-lg shadow-blue-100 active:scale-[0.97] group">
+        <div className="p-5 border-t border-slate-700 bg-slate-900">
+          <label className="flex items-center justify-center gap-3 w-full py-4 bg-blue-600 text-white rounded-xl hover:bg-blue-500 cursor-pointer transition-all shadow-xl active:scale-95 group">
             <PlusCircle className="w-5 h-5 group-hover:rotate-90 transition-transform" />
             <span className="font-bold text-sm">导入病历资料</span>
             <input type="file" className="hidden" accept="image/*,application/pdf,.txt,.docx" onChange={handleFileUpload} disabled={isParsing} />
           </label>
-          <p className="text-[10px] text-center text-slate-400 mt-3 font-medium tracking-tight">豆包 API 识别 · 支持多种格式</p>
-          {isParsing && (
-            <div className="mt-3 flex items-center justify-center gap-2 text-[10px] text-blue-600 animate-pulse font-bold tracking-widest uppercase">
-              <Sparkles className="w-3 h-3" />
-              <span>豆包多模态解析中...</span>
-            </div>
-          )}
+          <div className="grid grid-cols-3 gap-2 mt-4">
+             <div className="flex flex-col items-center gap-1 opacity-50">
+               <Stethoscope className="w-4 h-4" />
+               <span className="text-[8px] uppercase">临床</span>
+             </div>
+             <div className="flex flex-col items-center gap-1 opacity-50">
+               <BarChart3 className="w-4 h-4" />
+               <span className="text-[8px] uppercase">统计</span>
+             </div>
+             <div className="flex flex-col items-center gap-1 opacity-50">
+               <HeartPulse className="w-4 h-4" />
+               <span className="text-[8px] uppercase">营养</span>
+             </div>
+          </div>
         </div>
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-30 shadow-sm no-print">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-30 shadow-sm no-print">
           <div className="flex items-center gap-4">
             {!sidebarOpen && (
-              <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+              <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-slate-100 rounded-xl">
                 <Menu className="w-5 h-5 text-slate-600" />
               </button>
             )}
             <div className="flex items-center gap-3">
-              <div className="bg-slate-900 p-2.5 rounded-2xl shadow-lg">
-                <BrainCircuit className="w-6 h-6 text-blue-400" />
+              <div className="bg-blue-600 p-1.5 rounded-lg shadow-inner">
+                <Database className="w-6 h-6 text-white" />
               </div>
-              <h1 className="text-xl font-black tracking-tighter text-slate-800 uppercase hidden sm:block italic">Project Nexus</h1>
+              <div>
+                <h1 className="text-xl font-black tracking-tighter text-slate-800 leading-none">健数智合</h1>
+                <p className="text-[9px] font-bold text-blue-500 uppercase mt-1 tracking-widest">Digital Health Integration</p>
+              </div>
             </div>
           </div>
 
@@ -225,100 +231,66 @@ const App: React.FC = () => {
             {activePatient ? (
               <button 
                 onClick={() => setShowPatientSelector(!showPatientSelector)}
-                className="flex items-center gap-3 px-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-white hover:shadow-md transition-all active:scale-[0.98]"
+                className="flex items-center gap-3 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl hover:bg-white transition-all"
               >
-                <div className="h-10 w-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-inner flex items-center justify-center font-black text-white text-sm">
+                <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white text-xs">
                   {activePatient.name.substring(0, 1)}
                 </div>
-                <div className="text-left">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">当前档案</div>
+                <div className="text-left hidden sm:block">
+                  <div className="text-[9px] font-bold text-slate-400 uppercase">当前档案</div>
                   <div className="flex items-center gap-1">
                     <span className="text-sm font-black text-slate-800">{activePatient.name}</span>
-                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showPatientSelector ? 'rotate-180' : ''}`} />
+                    <ChevronDown className="w-3 h-3 text-slate-400" />
                   </div>
                 </div>
               </button>
             ) : (
-              <button 
-                className="h-11 w-11 bg-slate-100 border-2 border-dashed border-slate-300 rounded-2xl flex items-center justify-center text-slate-400 hover:text-blue-600 hover:border-blue-400 hover:bg-blue-50 transition-all group"
-                title="暂无档案，上传资料后自动创建"
-              >
-                <UserPlus className="w-6 h-6 group-hover:scale-110 transition-transform" />
-              </button>
-            )}
-
-            {showPatientSelector && activePatient && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowPatientSelector(false)} />
-                <div className="absolute right-0 mt-3 w-72 bg-white border border-slate-200 rounded-[2rem] shadow-2xl p-4 z-50 animate-in fade-in zoom-in duration-200">
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 px-2">档案列表</div>
-                  <div className="space-y-2">
-                    {patients.map((p) => (
-                      <button
-                        key={p.id}
-                        onClick={() => handlePatientSwitch(p.id)}
-                        className={`w-full flex items-center gap-4 p-3 rounded-2xl transition-all ${activePatientId === p.id ? 'bg-blue-50 border border-blue-100 shadow-sm' : 'hover:bg-slate-50 border border-transparent'}`}
-                      >
-                        <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-sm ${activePatientId === p.id ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
-                          {p.name.substring(0, 1)}
-                        </div>
-                        <div className="text-left flex-1">
-                          <div className="font-bold text-slate-800">{p.name}</div>
-                          <div className="text-[10px] text-blue-500 font-medium truncate">{p.tag}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
+              <div className="flex items-center gap-2 text-slate-400 text-xs px-4">
+                <Fingerprint className="w-4 h-4" />
+                <span>待载入数据...</span>
+              </div>
             )}
           </div>
         </header>
 
-        <div className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-y-auto medical-grid">
+        <div className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-y-auto">
           <div className="lg:col-span-8 space-y-6">
-            <section className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[650px] transition-all report-container relative">
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 no-print">
+            <section className="report-card rounded-2xl overflow-hidden flex flex-col min-h-[700px] transition-all relative">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 no-print">
                 <div className="flex items-center gap-3">
                   <FileSearch className="w-5 h-5 text-blue-600" />
-                  <h2 className="text-sm font-bold text-slate-700 uppercase tracking-widest">标准化病历视图</h2>
+                  <h2 className="text-sm font-bold text-slate-700">多维度标准化报告</h2>
                 </div>
                 {currentReport && (
-                  <button 
-                    onClick={() => window.print()}
-                    className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-full text-[10px] font-black uppercase hover:bg-blue-700 transition-colors shadow-md shadow-blue-100"
-                  >
-                    <Download className="w-3 h-3" />
-                    导出 PDF
+                  <button onClick={() => window.print()} className="p-2 hover:bg-white rounded-lg transition-colors border border-transparent hover:border-slate-200">
+                    <Download className="w-4 h-4 text-slate-600" />
                   </button>
                 )}
               </div>
               
-              <div className="flex-1 p-8 overflow-y-auto custom-scrollbar">
+              <div className="flex-1 p-10 overflow-y-auto custom-scrollbar">
                 {currentReport ? (
-                  <article className="prose prose-slate max-w-none whitespace-pre-wrap font-sans leading-relaxed text-slate-700">
+                  <article className="prose prose-slate max-w-none whitespace-pre-wrap text-slate-700">
                     {currentReport}
                   </article>
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-6 py-20 no-print">
-                    <div className="relative">
-                      <div className="p-10 bg-slate-50 rounded-full border-4 border-dashed border-slate-100">
-                        <Fingerprint className="w-16 h-16 opacity-10" />
-                      </div>
-                      <Sparkles className="absolute -top-2 -right-2 w-8 h-8 text-blue-400 animate-bounce" />
-                    </div>
-                    <div className="text-center max-w-xs">
-                      <p className="text-lg font-bold text-slate-700">等待豆包识别</p>
-                      <p className="text-xs mt-2 text-slate-400 leading-relaxed font-medium">
-                        上传病历资料后，系统将通过火山引擎豆包多模态模型提取信息并<span className="text-blue-600 font-black">自动建档</span>。
-                      </p>
-                    </div>
+                  <div className="h-full flex flex-col items-center justify-center text-slate-400 py-32 no-print">
+                    <Sparkles className="w-12 h-12 mb-6 text-blue-100 animate-pulse" />
+                    <p className="text-sm font-bold">请通过左侧导入患者病历</p>
+                    <p className="text-[10px] mt-2 max-w-[200px] text-center opacity-60">健数智合将自动识别数据来源并按照多科室视角完成结构化拆解</p>
                   </div>
                 )}
               </div>
+              
+              {isParsing && (
+                <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex flex-col items-center justify-center z-10 no-print">
+                   <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                   <p className="mt-4 text-sm font-bold text-blue-600">豆包模型正在整合多模态数据...</p>
+                </div>
+              )}
             </section>
             
-            <div className="insight-panel no-print">
+            <div className="no-print">
                 <InsightPanel insights={insights} loading={isReasoning} />
             </div>
           </div>
@@ -330,16 +302,14 @@ const App: React.FC = () => {
               isTyping={isChatting} 
             />
             
-            <div className="p-6 bg-gradient-to-br from-blue-900 to-slate-900 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden group">
-              <div className="relative z-10">
-                <div className="flex items-center gap-2 mb-4">
-                  <ShieldCheck className="w-5 h-5 text-blue-300" />
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-300">豆包安全协议已生效</span>
-                </div>
-                <p className="text-xs leading-relaxed font-medium opacity-80 mb-4">
-                  所有临床数据通过火山引擎专有 Endpoint 进行加密传输，模型不用于二次训练。
-                </p>
+            <div className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <ShieldCheck className="w-5 h-5 text-emerald-500" />
+                <span className="text-[10px] font-black uppercase text-slate-500">数据隐私与合规性</span>
               </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed italic">
+                “健数智合”遵循临床数据处理规范，所有解析过程均在独立 Endpoint 中完成。模型识别逻辑针对临床主任、统计学家视角进行深度对齐。
+              </p>
             </div>
           </div>
         </div>
