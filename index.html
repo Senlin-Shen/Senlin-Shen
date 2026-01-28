@@ -8,13 +8,24 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <style>
-        body { 
-            font-family: 'Noto Sans SC', sans-serif; 
+        /* 移除所有可能存在的 user-select: none */
+        * {
             -webkit-user-select: text !important;
             -moz-user-select: text !important;
             -ms-user-select: text !important;
             user-select: text !important;
         }
+        
+        body { 
+            font-family: 'Noto Sans SC', sans-serif; 
+            background-color: #f8fafc;
+        }
+
+        /* 仅对不需要选中的交互元素应用 */
+        button, .no-select {
+            user-select: none !important;
+        }
+
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
@@ -26,18 +37,15 @@
             background-size: 24px 24px;
         }
         
-        /* 深度医疗风格 Markdown 渲染 */
         .prose h1 { color: #1e3a8a; border-bottom: 2px solid #3b82f6; padding-bottom: 0.5rem; margin-top: 2rem; font-size: 1.5rem; font-weight: 900; }
         .prose h2 { color: #1e40af; border-left: 4px solid #3b82f6; padding-left: 0.75rem; margin-top: 1.5rem; font-size: 1.25rem; font-weight: 800; }
         .prose table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; font-size: 0.9rem; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
         .prose th { background-color: #f1f5f9; color: #475569; padding: 0.75rem; text-align: left; font-weight: 700; }
         .prose td { padding: 0.75rem; border-top: 1px solid #e2e8f0; color: #334155; }
-        .prose tr:nth-child(even) { background-color: #f8fafc; }
         
         @media print {
             aside, header, .no-print { display: none !important; }
             main { display: block !important; padding: 0 !important; }
-            .report-card { border: none !important; box-shadow: none !important; }
         }
     </style>
     <script type="importmap">
@@ -47,8 +55,7 @@
     "react-dom/client": "https://esm.sh/react-dom@^19.0.0/client",
     "lucide-react": "https://esm.sh/lucide-react@^0.474.0",
     "react/": "https://esm.sh/react@^19.2.4/",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.38.0"
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
   }
 }
 </script>

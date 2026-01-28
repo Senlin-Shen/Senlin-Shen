@@ -1,32 +1,64 @@
 
-import { FHIRResource, Insight, ResourceType } from "../types";
+import { FHIRResource, ResourceType } from "../types";
 import { SYSTEM_INSTRUCTION_PARSER, SYSTEM_INSTRUCTION_REASONER } from "../constants";
 
 /**
- * 豆包（火山引擎）API 配置
+ * 豆包（火山引擎）API 配置 - OpenAI 兼容模式
  */
 const DOUBAO_ENDPOINT = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
-const API_KEY = process.env.API_KEY; // 从 Vercel 环境变量获取
-const MODEL_ID = (process.env as any).VITE_DOUBAO_MODEL_ID || "doubao-pro-32k"; // 推理接入点 ID
+// 根据系统要求，API Key 统一从 process.env.API_KEY 获取
+const API_KEY = process.env.API_KEY; 
+// 推理接入点 ID (EP ID)
+const MODEL_ID = (process.env as any).VITE_DOUBAO_MODEL_ID || "ep-placeholder";
 
 /**
- * 通用豆包 API 请求封装（OpenAI 兼容格式）
+ * 辅助方法：流式解析响应
  */
-async function callDoubao(messages: any[], responseFormat?: string) {
-  if (!API_KEY) {
-    throw new Error("未配置 API_KEY，请在 Vercel 后台检查环境变量。");
-  }
+async function handleStreamingResponse(
+  response: Response,
+  onChunk: (text: string) => void
+): Promise<string> {
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
+  let fullText = "";
 
-  const body: any = {
-    model: MODEL_ID,
-    messages: messages,
-    temperature: 0.1,
-  };
+  if (!reader) throw new Error("无法读取流数据");
 
-  if (responseFormat === "json_object") {
-    // 豆包部分模型支持通过提示词强制 JSON，这里在 body 中也做标记
-    body.response_format = { type: "json_object" };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split("\n");
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const json = JSON.parse(data);
+          const content = json.choices[0]?.delta?.content || "";
+          if (content) {
+            fullText += content;
+            onChunk(content);
+          }
+        } catch (e) {
+          // 忽略解析错误
+        }
+      }
+    }
   }
+  return fullText;
+}
+
+/**
+ * 通用豆包 API 请求封装
+ */
+async function callDoubaoStream(
+  messages: any[],
+  onChunk: (text: string) => void
+): Promise<string> {
+  if (!API_KEY) throw new Error("API_KEY 未配置，请在 Vercel 环境变量中设置。");
 
   const response = await fetch(DOUBAO_ENDPOINT, {
     method: "POST",
@@ -34,22 +66,26 @@ async function callDoubao(messages: any[], responseFormat?: string) {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${API_KEY}`
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      model: MODEL_ID,
+      messages: messages,
+      temperature: 0.1,
+      stream: true
+    })
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData?.error?.message || `API 请求失败: ${response.status}`);
+    const errorBody = await response.text();
+    throw new Error(`API 错误 (${response.status}): ${errorBody}`);
   }
 
-  const data = await response.json();
-  return data.choices[0].message.content;
+  return await handleStreamingResponse(response, onChunk);
 }
 
 /**
- * 辅助方法：从生成的报告中提取临床事件
+ * 结构化解析辅助
  */
-function extractResources(text: string): FHIRResource[] {
+export function extractResourcesFromText(text: string): FHIRResource[] {
   const resources: FHIRResource[] = [];
   const lines = text.split('\n');
   lines.forEach(line => {
@@ -67,99 +103,62 @@ function extractResources(text: string): FHIRResource[] {
 }
 
 /**
- * 解析医疗文档（多模态：支持批量图片）
+ * 解析医疗文档（流式 + 多模态）
  */
-export const processMedicalRecord = async (
+export const processMedicalRecordStream = async (
   files: { data: string; mimeType: string }[],
-  textContent?: string
-): Promise<{ report: string; resources: FHIRResource[] }> => {
-  const contentParts: any[] = [];
-  
-  if (textContent) {
-    contentParts.push({ type: "text", text: `病历文本内容: ${textContent}` });
-  }
+  onChunk: (text: string) => void
+): Promise<string> => {
+  const contentParts: any[] = [{ type: "text", text: "请基于以下图片内容生成结构化临床报告：" }];
   
   files.forEach(file => {
     contentParts.push({
       type: "image_url",
-      image_url: {
-        url: `data:${file.mimeType};base64,${file.data}`
-      }
+      image_url: { url: `data:${file.mimeType};base64,${file.data}` }
     });
   });
 
-  if (contentParts.length === 0) {
-    contentParts.push({ type: "text", text: "请解析当前病历资料。" });
-  }
-
-  try {
-    const reportText = await callDoubao([
-      { role: "system", content: SYSTEM_INSTRUCTION_PARSER },
-      { role: "user", content: contentParts }
-    ]);
-
-    return {
-      report: reportText,
-      resources: extractResources(reportText)
-    };
-  } catch (err: any) {
-    console.error("Doubao Parsing Error:", err);
-    throw err;
-  }
+  return await callDoubaoStream([
+    { role: "system", content: SYSTEM_INSTRUCTION_PARSER },
+    { role: "user", content: contentParts }
+  ], onChunk);
 };
 
 /**
- * 生成临床洞察（JSON 结构化输出）
+ * 临床咨询问答（流式）
  */
-export const generateMedicalInsights = async (history: FHIRResource[]): Promise<Insight[]> => {
-  if (history.length === 0) return [];
-  
-  try {
-    const prompt = `分析以下临床事件并生成 Insight JSON 数组。
-要求：
-1. 识别潜在风险 (WARNING) 或因果关联 (CAUSAL)。
-2. 严格返回 JSON 格式，不要有 Markdown 标记。
-数据：${JSON.stringify(history)}`;
-
-    const jsonStr = await callDoubao([
-      { role: "system", content: "你是一个资深临床专家。只返回 JSON 数组，包含 id, type (WARNING/INFO/CAUSAL), title, description, sourceIds 字段。" },
-      { role: "user", content: prompt }
-    ], "json_object");
-
-    // 清理 Markdown 代码块包裹
-    const cleaned = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleaned);
-  } catch (e) {
-    console.error("Insights Error:", e);
-    return [];
-  }
-};
-
-/**
- * 临床咨询问答（支持追问图片）
- */
-export const askMedicalQuestion = async (
-  question: string, 
-  context: string, 
-  images?: { data: string, mimeType: string }[]
+export const askMedicalQuestionStream = async (
+  question: string,
+  context: string,
+  onChunk: (text: string) => void
 ): Promise<string> => {
-  const contentParts: any[] = [{ type: "text", text: `背景上下文:\n${context}\n\n我的提问: ${question}` }];
-  
-  if (images) {
-    images.forEach(img => {
-      contentParts.push({
-        type: "image_url",
-        image_url: { url: `data:${img.mimeType};base64,${img.data}` }
-      });
-    });
-  }
+  return await callDoubaoStream([
+    { role: "system", content: SYSTEM_INSTRUCTION_REASONER },
+    { role: "user", content: `背景上下文:\n${context}\n\n当前提问: ${question}` }
+  ], onChunk);
+};
 
-  try {
-    return await callDoubao([
-      { role: "system", content: SYSTEM_INSTRUCTION_REASONER },
-      { role: "user", content: contentParts }
-    ]);
-  } catch (e: any) {
-    return `对话失败: ${e.message}`;
-  }
+/**
+ * 同步方法仅用于 JSON 洞察（豆包不支持流式返回纯 JSON）
+ */
+export const generateMedicalInsights = async (history: FHIRResource[]): Promise<any> => {
+  if (history.length === 0) return [];
+  const response = await fetch(DOUBAO_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${API_KEY}`
+    },
+    body: JSON.stringify({
+      model: MODEL_ID,
+      messages: [
+        { role: "system", content: "你是一个临床专家。请直接返回 JSON 数组格式的洞察，包含 id, type, title, description 字段。" },
+        { role: "user", content: `分析历史记录并返回 JSON: ${JSON.stringify(history)}` }
+      ],
+      response_format: { type: "json_object" }
+    })
+  });
+  const data = await response.json();
+  const content = data.choices[0].message.content;
+  return JSON.parse(content.replace(/```json/g, '').replace(/```/g, ''));
 };
