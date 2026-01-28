@@ -8,53 +8,35 @@ import { FHIRResource, Insight, ChatMessage } from './types';
 import { 
   ShieldCheck, BrainCircuit, HeartPulse, Menu, X, PlusCircle, 
   FileSearch, Sparkles, ChevronDown, Download, 
-  Trash2, CheckSquare, Square, Fingerprint, 
-  Database, BarChart3, Stethoscope, Loader2, User
+  Trash2, Database, Loader2, User, Paperclip, Image as ImageIcon
 } from 'lucide-react';
 
-interface Patient {
+interface FilePreview {
   id: string;
-  name: string;
-  age?: string;
-  gender?: string;
-  tag?: string;
+  file: File;
+  base64: string;
+  type: string;
 }
 
 const App: React.FC = () => {
-  const [patients, setPatients] = useState<Patient[]>([
-    { id: '1', name: '张建国', age: '65', gender: '男', tag: '慢性高血压' },
-    { id: '2', name: '李晓华', age: '42', gender: '女', tag: '术后康复' }
-  ]);
-  const [activePatientId, setActivePatientId] = useState<string | null>(null);
-  const [showPatientSelector, setShowPatientSelector] = useState(false);
-  const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
-  
+  const [patients, setPatients] = useState([{ id: '1', name: '张建国', tag: '慢性高血压' }]);
+  const [activePatientId, setActivePatientId] = useState<string | null>('1');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [history, setHistory] = useState<FHIRResource[]>([]);
   const [insights, setInsights] = useState<Insight[]>([]);
   const [currentReport, setCurrentReport] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  
   const [isParsing, setIsParsing] = useState(false);
-  const [isReasoning, setIsReasoning] = useState(false);
   const [isChatting, setIsChatting] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   
+  // 附件管理
+  const [previews, setPreviews] = useState<FilePreview[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activePatient = patients.find(p => p.id === activePatientId);
 
-  useEffect(() => {
-    if (!activePatientId) {
-      setMessages([{ 
-        id: 'init', 
-        role: 'assistant', 
-        content: "欢迎使用「健数智合」。我是您的 AI 医疗数据助理。平台已接入 Gemini 3 Pro 临床大模型，支持解析门诊、住院、检验等全量病历。请上传资料开始自动化建档。", 
-        timestamp: Date.now() 
-      }]);
-    }
-  }, [activePatientId]);
-
-  const compressImage = (file: File): Promise<string> => {
+  // 图片压缩逻辑
+  const compressImage = (file: File): Promise<{ base64: string, type: string }> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -65,222 +47,182 @@ const App: React.FC = () => {
           const canvas = document.createElement('canvas');
           let width = img.width;
           let height = img.height;
-          const maxDim = 1600; 
-          
-          if (width > height && width > maxDim) {
-            height = (height * maxDim) / width;
-            width = maxDim;
-          } else if (height > maxDim) {
-            width = (width * maxDim) / height;
-            height = maxDim;
-          }
-          
+          const maxDim = 1200; 
+          if (width > height && width > maxDim) { height *= maxDim / width; width = maxDim; }
+          else if (height > maxDim) { width *= maxDim / height; height = maxDim; }
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx?.drawImage(img, 0, 0, width, height);
-          
-          resolve(canvas.toDataURL('image/jpeg', 0.7).split(',')[1]);
+          const compressed = canvas.toDataURL('image/jpeg', 0.8);
+          resolve({ base64: compressed.split(',')[1], type: 'image/jpeg' });
         };
-        img.onerror = () => reject(new Error("图片加载失败"));
       };
-      reader.onerror = () => reject(new Error("文件读取失败"));
+      reader.onerror = reject;
     });
   };
 
-  // Fix: Corrected handleFileUpload to handle File typing and complete truncated logic
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  // Fixed TypeScript errors by casting the FileList to File[] to prevent 'unknown' type inference
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length === 0) return;
 
-    setIsParsing(true);
-    // FIX: Cast to File[] to solve the "unknown" type error in lines 99, 100, 102
-    const fileList = Array.from(files) as File[];
-    
-    try {
-      for (const file of fileList) {
-        if (file.type.startsWith('image/')) {
-          const compressedBase64 = await compressImage(file);
-          const { report, resources } = await processMedicalRecord({ data: compressedBase64, mimeType: 'image/jpeg' });
-          setCurrentReport(prev => prev + "\n\n" + report);
-          setHistory(prev => [...prev, ...resources]);
-        }
+    const newPreviews: FilePreview[] = [];
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        const { base64 } = await compressImage(file);
+        newPreviews.push({ id: Math.random().toString(), file, base64, type: file.type });
       }
-      
-      // Update insights after batch processing
-      setIsReasoning(true);
-      const newInsights = await generateMedicalInsights(history);
-      setInsights(newInsights);
-      setIsReasoning(false);
+    }
+    setPreviews(prev => [...prev, ...newPreviews]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
+  const removePreview = (id: string) => setPreviews(prev => prev.filter(p => p.id !== id));
+
+  const startAnalysis = async () => {
+    if (previews.length === 0) return;
+    setIsParsing(true);
+    try {
+      const payload = previews.map(p => ({ data: p.base64, mimeType: 'image/jpeg' }));
+      const { report, resources } = await processMedicalRecord(payload);
+      
+      setCurrentReport(prev => prev ? prev + "\n\n" + report : report);
+      const newHistory = [...history, ...resources];
+      setHistory(newHistory);
+      setPreviews([]);
+      
+      const newInsights = await generateMedicalInsights(newHistory);
+      setInsights(newInsights);
     } catch (err: any) {
-      console.error("Upload Error:", err);
+      alert(err.message);
     } finally {
       setIsParsing(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   const handleSendMessage = async (text: string) => {
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: text,
-      timestamp: Date.now()
-    };
+    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: text, timestamp: Date.now() };
     setMessages(prev => [...prev, userMsg]);
     setIsChatting(true);
-
     try {
-      const context = `Current Patient Report: ${currentReport}\nExtracted Insights: ${JSON.stringify(insights)}`;
+      const context = `当前报告: ${currentReport}\n已识别节点: ${JSON.stringify(history)}`;
       const reply = await askMedicalQuestion(text, context);
-      const botMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: reply,
-        timestamp: Date.now()
-      };
-      setMessages(prev => [...prev, botMsg]);
-    } catch (err) {
-      console.error(err);
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: reply, timestamp: Date.now() }]);
     } finally {
       setIsChatting(false);
     }
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
+    <div className="flex h-screen bg-[#f8fafc] overflow-hidden select-text">
       {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-80' : 'w-0'} transition-all duration-300 bg-white border-r border-slate-200 flex flex-col z-20`}>
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+      <aside className={`${sidebarOpen ? 'w-80' : 'w-0'} transition-all duration-300 bg-[#1e293b] text-white flex flex-col z-20`}>
+        <div className="p-6 border-b border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-200">
-              <HeartPulse className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-xl font-black tracking-tighter text-slate-800">健数智合</h1>
+            <HeartPulse className="w-6 h-6 text-blue-400" />
+            <h1 className="text-xl font-black tracking-tight">健数智合</h1>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400">
-            <X className="w-5 h-5" />
-          </button>
+          <button onClick={() => setSidebarOpen(false)} className="lg:hidden"><X /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          <div className="px-2 py-4">
-            <button 
-              onClick={() => setShowPatientSelector(!showPatientSelector)}
-              className="w-full flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl hover:border-blue-400 transition-all"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xs">
-                  {activePatient ? activePatient.name[0] : <User className="w-4 h-4" />}
-                </div>
-                <div className="text-left">
-                  <div className="text-xs font-bold text-slate-800">{activePatient?.name || '选择患者'}</div>
-                  <div className="text-[10px] text-slate-400 uppercase tracking-widest">{activePatient?.tag || '待同步'}</div>
-                </div>
-              </div>
-              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showPatientSelector ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
-
-          <div className="px-2 pb-4">
-            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-4">时间轴追溯</h3>
-            <Timeline 
-              data={history} 
-              selectedIds={selectedResourceIds}
-              onToggleSelect={(id) => setSelectedResourceIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
-              onSelect={() => {}} 
-            />
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+          <div className="mb-6">
+             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">临床时间轴</div>
+             <Timeline 
+               data={history} 
+               selectedIds={[]} 
+               onToggleSelect={() => {}} 
+               onSelect={() => {}} 
+             />
           </div>
         </div>
-        
-        <div className="p-6 border-t border-slate-100">
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isParsing}
-            className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 active:scale-[0.98] transition-all shadow-xl shadow-slate-200 disabled:opacity-50"
-          >
-            {isParsing ? <Loader2 className="w-5 h-5 animate-spin" /> : <PlusCircle className="w-5 h-5" />}
-            {isParsing ? '正在识别' : '导入影像/报告'}
-          </button>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileUpload} 
-            multiple 
-            accept="image/*" 
-            className="hidden" 
-          />
+
+        <div className="p-6 bg-slate-900">
+           <button 
+             onClick={() => fileInputRef.current?.click()}
+             className="w-full py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all"
+           >
+             <PlusCircle className="w-5 h-5" />
+             导入病历资料
+           </button>
+           <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple accept="image/*" className="hidden" />
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
-        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-10">
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <header className="h-16 bg-white border-b flex items-center justify-between px-8 shrink-0">
           <div className="flex items-center gap-4">
-            {!sidebarOpen && (
-              <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-slate-100 rounded-lg mr-2">
-                <Menu className="w-5 h-5 text-slate-600" />
-              </button>
-            )}
-            <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100">
+            {!sidebarOpen && <button onClick={() => setSidebarOpen(true)} className="p-2 hover:bg-slate-100 rounded-lg"><Menu className="w-5 h-5"/></button>}
+            <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
               <ShieldCheck className="w-4 h-4" />
-              <span className="text-[10px] font-bold uppercase tracking-widest">隐私安全已就绪</span>
+              <span className="text-[10px] font-bold uppercase tracking-widest">隐私安全空间</span>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="h-8 w-px bg-slate-200" />
-            <div className="flex -space-x-2">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                  U{i}
-                </div>
-              ))}
-            </div>
+          <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+             <div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center text-[10px] font-bold text-white">{activePatient?.name[0]}</div>
+             <span className="text-sm font-bold text-slate-700">{activePatient?.name}</span>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 flex gap-8">
-          {/* Analysis View */}
+        <div className="flex-1 overflow-y-auto p-8 flex flex-col lg:flex-row gap-8">
           <div className="flex-1 space-y-8">
-            <section className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden min-h-[400px]">
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <div className="flex items-center gap-3">
-                  <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-                    <FileSearch className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <h2 className="font-black text-slate-800 tracking-tight">结构化临床报告</h2>
-                </div>
-                {currentReport && (
-                  <button className="p-2 hover:bg-white rounded-lg text-slate-400 border border-transparent hover:border-slate-200 transition-all">
-                    <Download className="w-4 h-4" />
+            {/* 上传预览区 */}
+            {previews.length > 0 && (
+              <section className="bg-white p-6 rounded-3xl border border-blue-100 shadow-sm animate-in fade-in slide-in-from-top-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                    <Paperclip className="w-4 h-4 text-blue-500" />
+                    待处理附件 ({previews.length})
+                  </h3>
+                  <button 
+                    onClick={startAnalysis} 
+                    disabled={isParsing}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {isParsing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Sparkles className="w-4 h-4"/>}
+                    开始临床解析
                   </button>
-                )}
+                </div>
+                <div className="flex flex-wrap gap-4">
+                  {previews.map(p => (
+                    <div key={p.id} className="relative group">
+                      <img src={`data:image/jpeg;base64,${p.base64}`} className="w-20 h-20 object-cover rounded-xl border border-slate-200" />
+                      <button onClick={() => removePreview(p.id)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section className="bg-white rounded-3xl border border-slate-200 shadow-sm min-h-[500px] flex flex-col">
+              <div className="p-6 border-b flex items-center justify-between bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <FileSearch className="w-5 h-5 text-blue-600" />
+                  <h2 className="font-bold text-slate-800">多维度标准化报告</h2>
+                </div>
+                {currentReport && <button className="p-2 hover:bg-white rounded-lg border border-slate-200"><Download className="w-4 h-4"/></button>}
               </div>
-              <div className="p-8 prose prose-slate max-w-none prose-headings:font-black prose-headings:tracking-tight prose-strong:text-blue-700">
+              <div className="p-8 prose prose-slate max-w-none flex-1">
                 {currentReport ? (
-                  <div className="whitespace-pre-wrap text-slate-700 leading-relaxed font-medium">
-                    {currentReport}
-                  </div>
+                  <div className="whitespace-pre-wrap text-slate-700 leading-relaxed select-text">{currentReport}</div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-64 text-slate-300">
+                  <div className="h-full flex flex-col items-center justify-center text-slate-300 py-32">
                     <Database className="w-16 h-16 mb-4 opacity-10" />
-                    <p className="font-bold uppercase tracking-widest text-[10px]">等待数据输入...</p>
+                    <p className="font-bold text-[10px] uppercase tracking-widest">请从侧边栏导入临床资料</p>
                   </div>
                 )}
               </div>
             </section>
             
-            <InsightPanel insights={insights} loading={isReasoning} />
+            <InsightPanel insights={insights} loading={false} />
           </div>
 
-          {/* Chat Sidepanel */}
-          <div className="w-[400px] shrink-0 sticky top-0 h-fit">
-            <ChatInterface 
-              messages={messages} 
-              onSendMessage={handleSendMessage} 
-              isTyping={isChatting} 
-            />
+          <div className="w-full lg:w-[400px] shrink-0 h-fit sticky top-8">
+            <ChatInterface messages={messages} onSendMessage={handleSendMessage} isTyping={isChatting} />
           </div>
         </div>
       </main>
